@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rabbit AI Chat</title>
+  <link rel="stylesheet" href="chat.css">
+  <link rel="icon" href="assets/favicon.svg">
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">
+      <div class="header-content">
+        <img src="assets/favicon.svg" alt="Rabbit AI" class="bot-logo">
+        <h1>Rabbit AI</h1>
+      </div>
+    </div>
+    
+    <div id="chat-box" class="chat-box">
+      <!-- Messages will be dynamically added here -->
+    </div>
+    
+    <div id="suggestions" class="suggestions">
+      <button>How is my site performing this month?</button>
+      <button>Show me pageviews in the last 30 days</button>
+      <button>Which plan am I on?</button>
+    </div>
+    
+    <div class="chat-input-container">
+      <input 
+        type="text" 
+        id="chat-input" 
+        placeholder="Type your message..."
+        autocomplete="off"
+      >
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
+
+  <script src="chat.js"></script>
+</body>
+</html>

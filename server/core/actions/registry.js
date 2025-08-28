@@ -134,7 +134,7 @@ const actions = {
     ]
   },
 
-  // V2: Plan Usage (CONFIRMED)
+  // V2: Plan Usage (TEMPORARILY DISABLED due to API issues)
   // GET https://api-v2.rabbitloader.com/domain/plan_usage/{domainId}?get_params=CAE%3D
   plan_usage_v2: {
     id: 'plan_usage_v2',
@@ -150,7 +150,8 @@ const actions = {
       'plan usage',
       'quota status',
       'usage limits'
-    ]
+    ],
+    disabled: true   // <--- DISABLED: API returning 400 errors
   },
 
   // V1: CSS Report (CONFIRMED)

@@ -1,33 +1,34 @@
-const OpenAI = require('openai');
-const cfg = require('../config');
+const { OpenAI } = require("openai");
 
-const client = new OpenAI({ apiKey: cfg.openai.apiKey });
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
+// Create embeddings (used in retriever.js and upload scripts)
 async function embed(text) {
-  if (!text || typeof text !== 'string') {
-    throw new Error('Invalid text input for embedding');
+  if (!text || !text.trim()) {
+    throw new Error("embed() called with empty text");
   }
-  const res = await client.embeddings.create({
-    model: cfg.openai.embedModel,
-    input: text.slice(0, 8000)
+  const resp = await client.embeddings.create({
+    model: "text-embedding-3-small", // light + cheap, fine for KB
+    input: text,
   });
-  return res.data[0].embedding;
+  return resp.data[0].embedding;
 }
 
-async function chat({ system, user, maxTokens = 300 }) {
-  if (!user || typeof user !== 'string') {
-    throw new Error('Invalid user message for chat');
-  }
-  const res = await client.chat.completions.create({
-    model: cfg.openai.chatModel,
-    max_tokens: maxTokens,
-    temperature: 0.2,
-    messages: [
-      ...(system ? [{ role: 'system', content: system }] : []),
-      { role: 'user', content: user }
-    ]
+// Chat completion (used for fallback answers if KB has no match)
+async function chatCompletion(messages, opts = {}) {
+  const resp = await client.chat.completions.create({
+    model: opts.model || "gpt-4o-mini",
+    messages,
+    temperature: opts.temperature ?? 0.2,
+    max_tokens: opts.max_tokens ?? 300,
   });
-  return res.choices[0].message.content.trim();
+  return resp.choices[0].message.content;
 }
 
-module.exports = { embed, chat };
+module.exports = {
+  embed,
+  chatCompletion,
+  client, // export raw client in case you need fine-grained calls
+};

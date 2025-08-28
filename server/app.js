@@ -1,5 +1,5 @@
 'use strict';
-
+require("dotenv").config({ path: ".env" });
 const path = require('path');
 require('dotenv').config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -40,6 +40,11 @@ app.use(requestId);
 app.use(helmet());
 app.use(cors());
 
+// Serve static frontend files
+app.use(express.static(path.join(__dirname, '../frontend')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/chat.html'));
+});
 // Rate limit (apply once, with env overrides)
 const rateCfg = { 
   rate: Number(process.env.RL_RATE || 60), 

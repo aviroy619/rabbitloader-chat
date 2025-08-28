@@ -6,6 +6,7 @@ const { actions } = require('../core/actions/registry');
 const { executeAction } = require('../core/actions/executor');
 const { retrieveKb } = require('../core/kb/retriever');
 const { kbAnswer } = require('../core/kb/answer');
+const { chat } = require('../clients/openai');
 const { log } = require('../core/logger');
 
 const router = express.Router();
@@ -74,6 +75,24 @@ router.post('/', async (req, res, next) => {
 
     // QNA path
     const retrieved = await retrieveKb(userMsg);
+
+    if (!retrieved.chunks || retrieved.chunks.length === 0) {
+      // Fallback: direct OpenAI chat (for greetings/smalltalk)
+      const fallbackAnswer = await chat({
+        system: "You are RabbitLoader Support. Be friendly but concise. Answer greetings or general queries naturally, but always keep it short.",
+        user: userMsg,
+        maxTokens: 200
+      });
+
+      log('chat-openai-fallback', { id: req.id });
+
+      return res.json({
+        route: 'QNA',
+        answer: fallbackAnswer,
+        trace: { decision: 'QNA', sources: [] }
+      });
+    }
+
     const qa = await kbAnswer(userMsg, retrieved);
     log('chat-kb', { id: req.id, kbSources: retrieved.chunks?.length || 0 });
 
