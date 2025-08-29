@@ -1,110 +1,98 @@
-'use strict';
-const express = require('express');
-const { routeMessage } = require('../core/router');
-const { extractCtx, missingParams } = require('../core/params');
-const { actions } = require('../core/actions/registry');
-const { executeAction } = require('../core/actions/executor');
-const { retrieveKb } = require('../core/kb/retriever');
-const { kbAnswer } = require('../core/kb/answer');
-const { chat } = require('../clients/openai');
-const { log } = require('../core/logger');
-
+const express = require("express");
 const router = express.Router();
 
-// Helper: extract JWT from Authorization header
-function extractJwt(req) {
-  const h = req.headers?.authorization || '';
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : '';
-}
+const routeMessage = require("../core/router");
+const { executeAction } = require("../core/actions/executor");
+const { retrieveKb } = require("../core/kb/retriever");
+const { kbAnswer } = require("../core/kb/answer");
 
-router.post('/', async (req, res, next) => {
-  const t0 = Date.now();
+const logger = require("../core/logger");
+
+router.post("/chat", async (req, res) => {
+  const { sessionId, userMsg, ctx = {} } = req.body;
+  const jwt = req.headers.authorization
+    ? req.headers.authorization.replace("Bearer ", "")
+    : "";
+
+  // merge into ctx
+  ctx.jwt = ctx.jwt || jwt;
+
+  logger.debug("Header JWT:", jwt ? "present" : "missing");
+  logger.debug("Base ctx:", ctx);
+
   try {
-    const { userMsg } = req.body || {};
-    const baseCtx = extractCtx(req);
-    
-    // Extract JWT from Authorization header and merge with context
-    const headerJwt = extractJwt(req);
-    console.log('[DEBUG] Header JWT:', headerJwt ? 'present' : 'missing');
-    console.log('[DEBUG] Base ctx:', baseCtx);
-    
-    const ctx = {
-      ...baseCtx,
-      jwt: baseCtx.jwt || headerJwt  // Prefer body context, fallback to header
-    };
-    console.log('[DEBUG] Final ctx JWT status:', ctx.jwt ? 'present' : 'missing');
-    
-    const r = routeMessage(userMsg);
-    console.log('[DEBUG] Chat route decision for', userMsg, ':', r);
+    // Decide route (ACTION vs QNA)
+    const decision = await routeMessage(userMsg, ctx);
+    logger.debug("Chat route decision for", userMsg, ":", decision);
 
-    if (r.route === 'ACTION') {
-      const meta = actions[r.actionId];
-      if (!meta) {
-        console.log('[DEBUG] Action not found in registry:', r.actionId);
+    if (decision.route === "ACTION") {
+      // ===== ACTION flow =====
+      try {
+        const result = await executeAction(decision.actionId, userMsg, ctx);
+        return res.json({
+          route: "ACTION",
+          answer: result.answer,
+          trace: {
+            decision: "ACTION",
+            actionId: decision.actionId,
+            http: result.http,
+          },
+        });
+      } catch (err) {
+        logger.error("Action execution failed:", err);
         return res.status(400).json({
-          route: 'ERROR',
-          error: `Action ${r.actionId} not found in registry`
+          ok: false,
+          error: `Action failed (${decision.actionId}): ${err.message}`,
         });
       }
-      
-      const need = missingParams(meta.needs, ctx);
-      if (need.length) {
-        log('chat-missing', { id: req.id, need, ctx: { jwt: ctx.jwt ? 'present' : '', domainId: ctx.domainId || '' } });
-        return res.status(400).json({
-          route: 'ACTION',
-          error: 'Missing required context',
-          need,
-          trace: { decision: 'ACTION', actionId: r.actionId }
-        });
-      }
+    } else {
+      // ===== QNA flow =====
+      const kbResults = await retrieveKb(userMsg);
 
-      const exec = await executeAction(r.actionId, userMsg, ctx);
-      log('chat-action', { id: req.id, actionId: r.actionId, http: exec.http });
+      if (kbResults && kbResults.length > 0) {
+        const topScore = kbResults[0].score;
+        logger.debug(
+          `Top KB score: ${topScore.toFixed(2)} for "${userMsg}"`
+        );
 
-      return res.json({
-        route: 'ACTION',
-        answer: exec.pretty,
-        trace: {
-          decision: 'ACTION',
-          actionId: r.actionId,
-          http: { status: exec.http.status, ms: exec.http.latencyMs }
+        if (topScore >= 0.60) {
+          // Use KB + OpenAI rewrite
+          const answer = await kbAnswer(userMsg, kbResults);
+          return res.json({
+            route: "QNA",
+            answer,
+            trace: {
+              decision: "QNA",
+              sources: kbResults.slice(0, 3).map((r, i) => ({
+                idx: i + 1,
+                title: r.title || "KB",
+                url: r.url || "",
+                score: r.score,
+              })),
+            },
+          });
+        } else {
+          // Too weak → fallback
+          logger.debug(
+            `KB score below threshold (0.60). Falling back to OpenAI.`
+          );
         }
-      });
-    }
-
-    // QNA path
-    const retrieved = await retrieveKb(userMsg);
-
-    if (!retrieved.chunks || retrieved.chunks.length === 0) {
-      // Fallback: direct OpenAI chat (for greetings/smalltalk)
-      const fallbackAnswer = await chat({
-        system: "You are RabbitLoader Support. Be friendly but concise. Answer greetings or general queries naturally, but always keep it short.",
-        user: userMsg,
-        maxTokens: 200
-      });
-
-      log('chat-openai-fallback', { id: req.id });
-
-      return res.json({
-        route: 'QNA',
-        answer: fallbackAnswer,
-        trace: { decision: 'QNA', sources: [] }
-      });
-    }
-
-    const qa = await kbAnswer(userMsg, retrieved);
-    log('chat-kb', { id: req.id, kbSources: retrieved.chunks?.length || 0 });
-
-    return res.json({
-      route: 'QNA',
-      answer: qa.answer,
-      trace: {
-        decision: 'QNA',
-        sources: (qa.sources || []).slice(0, 3) // compact: at most 3 sources
       }
-    });
-  } catch (e) { next(e); }
+
+      // Pure OpenAI fallback (no KB match)
+      const answer = await kbAnswer(userMsg, []); // pass empty context
+      return res.json({
+        route: "QNA",
+        answer,
+        trace: { decision: "QNA", sources: [] },
+      });
+    }
+  } catch (err) {
+    logger.error("Chat route error:", err);
+    return res
+      .status(500)
+      .json({ ok: false, error: err.message, requestId: req.requestId });
+  }
 });
 
 module.exports = router;

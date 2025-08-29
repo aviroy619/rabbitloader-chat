@@ -1,158 +1,207 @@
-// frontend/chat.js
+// frontend/chat.js - Browser JavaScript for the chat interface
 
-const API_BASE = "http://localhost:3006"; // change in prod
-
-const chatBox = document.getElementById("chat-box");
-const input = document.getElementById("chat-input");
-const sendBtn = document.getElementById("send-btn");
-
-let sessionId = `sess-${Date.now()}`;
-
-// --- Helpers ---
-function appendMessage(text, sender = "user") {
-  const bubble = document.createElement("div");
-  bubble.className = `bubble ${sender}`;
-  bubble.innerText = text;
-  chatBox.appendChild(bubble);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function showTyping() {
-  const bubble = document.createElement("div");
-  bubble.id = "typing-indicator";
-  bubble.className = "bubble bot typing";
-  bubble.innerHTML = `<span class="dot"></span><span class="dot"></span><span class="dot"></span> RabbitLoader is thinking...`;
-  chatBox.appendChild(bubble);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function hideTyping() {
-  const el = document.getElementById("typing-indicator");
-  if (el) el.remove();
-}
-
-function getContext() {
-  let jwt = localStorage.getItem("rl_jwt") || "";
-  let domainId = localStorage.getItem("rl_domainId") || "";
-  let domain = localStorage.getItem("rl_domain") || "";
-
-  // --- Auto-inject from RL Console if not already set manually ---
-  try {
-    // JWT from cookie "urauth"
-    if (!jwt) {
-      const cookies = document.cookie.split(";").map(c => c.trim());
-      const urauthCookie = cookies.find(c => c.startsWith("urauth="));
-      if (urauthCookie) {
-        jwt = urauthCookie.split("=")[1];
-        localStorage.setItem("rl_jwt", jwt); // cache for chat use
-      }
+class ChatInterface {
+    constructor() {
+        this.sessionId = null;
+        this.isLoading = false;
+        this.init();
     }
 
-    // Domain + domainId from localStorage "rl-selected-dr"
-    if (!domainId || !domain) {
-      const rlSelected = window.localStorage.getItem("rl-selected-dr");
-      if (rlSelected) {
-        const parsed = JSON.parse(rlSelected);
-        domain = domain || parsed.host || "";
-        domainId = domainId || parsed.id || "";
-        if (domain) localStorage.setItem("rl_domain", domain);
-        if (domainId) localStorage.setItem("rl_domainId", domainId);
-      }
+    init() {
+        this.setupEventListeners();
+        this.addWelcomeMessage();
     }
-  } catch (e) {
-    console.warn("Auto-inject failed:", e);
-  }
 
-  return { jwt, domainId, domain };
-}
+    setupEventListeners() {
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const suggestions = document.querySelectorAll('#suggestions button');
 
-// --- Command handler ---
-function handleCommand(message) {
-  if (message.toLowerCase().startsWith("jwt ")) {
-    const jwt = message.slice(4).trim();
-    localStorage.setItem("rl_jwt", jwt);
-    appendMessage("✅ JWT saved.", "bot");
-    return true;
-  }
-  if (message.toLowerCase().startsWith("domain_id ")) {
-    const domainId = message.slice(10).trim();
-    localStorage.setItem("rl_domainId", domainId);
-    appendMessage("✅ Domain ID saved.", "bot");
-    return true;
-  }
-  if (message.toLowerCase().startsWith("domain ")) {
-    const domain = message.slice(7).trim();
-    localStorage.setItem("rl_domain", domain);
-    appendMessage("✅ Domain saved.", "bot");
-    return true;
-  }
-  return false;
-}
+        // Send button click
+        sendBtn.addEventListener('click', () => this.sendMessage());
 
-// --- Main send ---
-async function sendMessage() {
-  const message = input.value.trim();
-  if (!message) return;
+        // Enter key press
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !this.isLoading) {
+                this.sendMessage();
+            }
+        });
 
-  appendMessage(message, "user");
-  input.value = "";
-
-  // ⛔ Important: intercept JWT/domain commands here
-  if (handleCommand(message)) return;  // stops before sending to server
-
-  try {
-    const { jwt, domainId, domain } = getContext();
-
-    showTyping();
-    const res = await fetch(`${API_BASE}/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
-      },
-      body: JSON.stringify({
-        sessionId,
-        userMsg: message,
-        ctx: { jwt, domainId, domain }
-      })
-    });
-    hideTyping();
-
-    const data = await res.json();
-
-    if (data.answer) {
-      appendMessage(data.answer, "bot");
-    } else if (data.error) {
-      appendMessage(`⚠️ Error: ${data.error}`, "bot");
-    } else {
-      appendMessage("⚠️ No response from server.", "bot");
+        // Suggestion buttons
+        suggestions.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const message = btn.textContent;
+                chatInput.value = message;
+                this.sendMessage();
+            });
+        });
     }
-  } catch (err) {
-    hideTyping(); // Make sure to hide typing indicator on error too
-    appendMessage(`⚠️ Network error: ${err.message}`, "bot");
-  }
-}
 
-// --- Event listeners ---
-sendBtn.addEventListener("click", sendMessage);
-input.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") sendMessage();
+    addWelcomeMessage() {
+        const welcomeMessage = "Hello! I'm Rabbit AI, your RabbitLoader assistant. How can I help you today?";
+        this.addMessage('assistant', welcomeMessage);
+    }
+
+        // inside ChatInterface
+    // inside ChatInterface
+async sendMessage() {
+    const chatInput = document.getElementById('chat-input');
+    const userInput = chatInput.value.trim();
+    if (!userInput) return;
+
+    this.addMessage("user", userInput);
+    this.setLoading(true);
+
+    try {
+        const res = await fetch("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+        sessionId: this.sessionId || Date.now().toString(),
+        message: userInput,
+        ctx: {}
+    })
 });
 
-// Suggestion button functionality
-document.getElementById("suggestions").addEventListener("click", (e) => {
-  if (e.target.tagName === "BUTTON") {
-    input.value = e.target.innerText;
-    sendMessage();
-  }
-});
 
-// Auto-greet after context loads
-window.addEventListener("load", () => {
-  const { jwt, domainId, domain } = getContext();
-  if (jwt && domainId && domain) {
-    appendMessage(`Welcome back! Connected to RabbitLoader for ${domain}.`, "bot");
-  } else {
-    appendMessage("Welcome! Please log in or enter your RabbitLoader details to continue.", "bot");
-  }
+        if (!res.ok) throw new Error("Chat API failed");
+        const data = await res.json();
+
+        if (data.ok) {
+            this.addMessage("assistant", data.answer || "(no answer)");
+            if (data.sources) {
+                this.addSources(data.sources);
+            }
+        } else {
+            this.addMessage("assistant", `⚠️ ${data.error}`);
+        }
+    } catch (err) {
+        console.error("Error sending message:", err);
+        this.addMessage("assistant", "⚠️ Error: Could not send message.");
+    }
+
+    this.setLoading(false);
+    chatInput.value = "";
+}
+
+    addMessage(role, text) {
+        const chatBox = document.getElementById('chat-box');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${role}`;
+        
+        if (role === 'assistant') {
+            messageDiv.innerHTML = `
+                <div class="message-avatar">
+                    <img src="assets/favicon.svg" alt="AI" class="avatar">
+                </div>
+                <div class="message-content">${this.formatMessage(text)}</div>
+            `;
+        } else {
+            messageDiv.innerHTML = `
+                <div class="message-content">${this.formatMessage(text)}</div>
+                <div class="message-avatar">
+                    <div class="user-avatar">You</div>
+                </div>
+            `;
+        }
+        
+        chatBox.appendChild(messageDiv);
+        this.scrollToBottom();
+    }
+
+    addSources(sources) {
+        const chatBox = document.getElementById('chat-box');
+        const sourcesDiv = document.createElement('div');
+        sourcesDiv.className = 'message-sources';
+        
+        let sourcesHtml = '<div class="sources-title">Sources:</div>';
+        sources.forEach((source, index) => {
+            if (source.url) {
+                sourcesHtml += `
+                    <a href="${source.url}" target="_blank" class="source-link">
+                        ${source.title} (${source.score}% match)
+                    </a>
+                `;
+            } else {
+                sourcesHtml += `
+                    <span class="source-item">
+                        ${source.title} (${source.score}% match)
+                    </span>
+                `;
+            }
+        });
+        
+        sourcesDiv.innerHTML = sourcesHtml;
+        chatBox.appendChild(sourcesDiv);
+        this.scrollToBottom();
+    }
+
+    formatMessage(text) {
+        // Basic HTML escaping and line break handling
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+    }
+
+    setLoading(loading) {
+        this.isLoading = loading;
+        const sendBtn = document.getElementById('send-btn');
+        const chatInput = document.getElementById('chat-input');
+        
+        sendBtn.disabled = loading;
+        chatInput.disabled = loading;
+        
+        if (loading) {
+            sendBtn.textContent = 'Sending...';
+            this.addTypingIndicator();
+        } else {
+            sendBtn.textContent = 'Send';
+            this.removeTypingIndicator();
+        }
+    }
+
+    addTypingIndicator() {
+        const chatBox = document.getElementById('chat-box');
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message assistant typing-indicator';
+        typingDiv.id = 'typing-indicator';
+        typingDiv.innerHTML = `
+            <div class="message-avatar">
+                <img src="assets/favicon.svg" alt="AI" class="avatar">
+            </div>
+            <div class="message-content">
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        `;
+        chatBox.appendChild(typingDiv);
+        this.scrollToBottom();
+    }
+
+    removeTypingIndicator() {
+        const typingIndicator = document.getElementById('typing-indicator');
+        if (typingIndicator) {
+            typingIndicator.remove();
+        }
+    }
+
+    hideSuggestions() {
+        const suggestions = document.getElementById('suggestions');
+        suggestions.style.display = 'none';
+    }
+
+    scrollToBottom() {
+        const chatBox = document.getElementById('chat-box');
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+}
+
+// Initialize chat when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new ChatInterface();
 });

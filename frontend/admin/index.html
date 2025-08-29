@@ -1,1 +1,387 @@
-ECHO is on.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RabbitLoader Chat Admin</title>
+    <link rel="stylesheet" href="admin.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Header -->
+        <header class="admin-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-comments"></i>
+                    <h1>Chat Admin Dashboard</h1>
+                </div>
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Sessions</span>
+                        <span class="stat-value" id="totalSessions">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Recent Activity</span>
+                        <span class="stat-value" id="recentActivity">-</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="admin-main">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h3>Chat Sessions</h3>
+                    <div class="sidebar-controls">
+                        <button id="refreshSessions" class="btn btn-small">
+                            <i class="fas fa-refresh"></i>
+                        </button>
+                        <select id="domainFilter" class="filter-select">
+                            <option value="">All Domains</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="sessions-list" id="sessionsList">
+                    <div class="loading">Loading sessions...</div>
+                </div>
+                <div class="sidebar-footer">
+                    <button id="loadMoreSessions" class="btn btn-secondary" style="display: none;">
+                        Load More
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content-area">
+                <div class="welcome-screen" id="welcomeScreen">
+                    <div class="welcome-content">
+                        <i class="fas fa-comments fa-3x"></i>
+                        <h2>Welcome to Chat Admin</h2>
+                        <p>Select a session from the sidebar to view and edit conversations.</p>
+                        <div class="quick-stats">
+                            <div class="quick-stat">
+                                <div class="stat-number" id="totalMessages">0</div>
+                                <div class="stat-desc">Total Messages</div>
+                            </div>
+                            <div class="quick-stat">
+                                <div class="stat-number" id="uniqueUsers">0</div>
+                                <div class="stat-desc">Unique Users</div>
+                            </div>
+                            <div class="quick-stat">
+                                <div class="stat-number" id="avgMessages">0</div>
+                                <div class="stat-desc">Avg Messages/Session</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="session-detail" id="sessionDetail" style="display: none;">
+                    <div class="session-header">
+                        <div class="session-info">
+                            <h2 id="sessionTitle">Session Details</h2>
+                            <div class="session-meta">
+                                <span class="meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span id="userName">Unknown User</span>
+                                </span>
+                                <span class="meta-item">
+                                    <i class="fas fa-envelope"></i>
+                                    <span id="userEmail">unknown@example.com</span>
+                                </span>
+                                <span class="meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span id="sessionDate">-</span>
+                                </span>
+                                <span class="meta-item">
+                                    <i class="fas fa-messages"></i>
+                                    <span id="messageCount">0 messages</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="session-actions">
+                            <button id="exportSession" class="btn btn-secondary">
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <button id="deleteSession" class="btn btn-danger">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="messages-container" id="messagesContainer">
+                        <!-- Messages will be loaded here -->
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal-overlay" id="editModal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Edit Assistant Answer</h3>
+                <button class="modal-close" id="closeEditModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="originalQuestion">Question</label>
+                    <div class="question-display" id="originalQuestion"></div>
+                </div>
+                <div class="form-group">
+                    <label for="newAnswer">New Answer</label>
+                    <textarea id="newAnswer" rows="6" placeholder="Enter the corrected answer..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="editorName">Editor</label>
+                    <input type="text" id="editorName" placeholder="admin@rabbitloader.com" value="admin@rabbitloader.com">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelEdit" class="btn btn-secondary">Cancel</button>
+                <button id="saveEdit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p>Processing...</p>
+        </div>
+    </div>
+
+    <!-- Load the JavaScript from the correct path -->
+    <script>
+        // Copy the admin.js content directly here or load from correct path
+        // Admin Dashboard JavaScript
+        class ChatAdmin {
+            constructor() {
+                this.currentSessionId = null;
+                this.currentEditData = null;
+                this.sessions = [];
+                this.currentSkip = 0;
+                this.hasMoreSessions = true;
+                
+                this.init();
+            }
+
+            async init() {
+                this.setupEventListeners();
+                await this.loadStats();
+                await this.loadSessions();
+            }
+
+            setupEventListeners() {
+                // Session management
+                document.getElementById('refreshSessions').addEventListener('click', () => this.refreshSessions());
+                document.getElementById('loadMoreSessions').addEventListener('click', () => this.loadMoreSessions());
+                document.getElementById('domainFilter').addEventListener('change', (e) => this.filterByDomain(e.target.value));
+                
+                // Session actions
+                document.getElementById('exportSession').addEventListener('click', () => this.exportSession());
+                document.getElementById('deleteSession').addEventListener('click', () => this.deleteSession());
+                
+                // Edit modal
+                document.getElementById('closeEditModal').addEventListener('click', () => this.closeEditModal());
+                document.getElementById('cancelEdit').addEventListener('click', () => this.closeEditModal());
+                document.getElementById('saveEdit').addEventListener('click', () => this.saveEdit());
+                
+                // Close modal on overlay click
+                document.getElementById('editModal').addEventListener('click', (e) => {
+                    if (e.target.classList.contains('modal-overlay')) {
+                        this.closeEditModal();
+                    }
+                });
+                
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        this.closeEditModal();
+                    }
+                });
+            }
+
+            async loadStats() {
+                try {
+                    console.log('Loading stats from /admin/stats');
+                    const response = await fetch('/admin/stats');
+                    console.log('Stats response status:', response.status);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Stats data:', data);
+                    
+                    if (data.ok && data.stats) {
+                        document.getElementById('totalSessions').textContent = data.stats.totalSessions || 0;
+                        document.getElementById('recentActivity').textContent = data.stats.recentActivity || 0;
+                        document.getElementById('totalMessages').textContent = data.stats.totalMessages || 0;
+                        document.getElementById('uniqueUsers').textContent = data.stats.uniqueUsers || 0;
+                        document.getElementById('avgMessages').textContent = data.stats.avgMessagesPerSession || 0;
+                    } else {
+                        throw new Error(data.error || 'Invalid stats response');
+                    }
+                } catch (error) {
+                    console.error('Error loading stats:', error);
+                    this.showToast('Failed to load statistics: ' + error.message, 'error');
+                }
+            }
+
+            async loadSessions(reset = false) {
+                if (reset) {
+                    this.currentSkip = 0;
+                    this.sessions = [];
+                    this.hasMoreSessions = true;
+                }
+
+                if (!this.hasMoreSessions) return;
+
+                try {
+                    this.showLoading('sessionsList');
+                    
+                    const domainId = document.getElementById('domainFilter').value;
+                    let url = `/admin/sessions?limit=20&skip=${this.currentSkip}`;
+                    if (domainId) {
+                        url += `&domainId=${encodeURIComponent(domainId)}`;
+                    }
+                    
+                    console.log('Loading sessions from:', url);
+                    const response = await fetch(url);
+                    console.log('Sessions response status:', response.status);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Sessions data:', data);
+                    
+                    if (data.ok && data.sessions) {
+                        if (reset) {
+                            this.sessions = data.sessions;
+                        } else {
+                            this.sessions.push(...data.sessions);
+                        }
+                        
+                        this.hasMoreSessions = data.hasMore;
+                        this.currentSkip += data.sessions.length;
+                        this.renderSessions();
+                        
+                        // Show/hide load more button
+                        const loadMoreBtn = document.getElementById('loadMoreSessions');
+                        loadMoreBtn.style.display = this.hasMoreSessions ? 'block' : 'none';
+                    } else {
+                        throw new Error(data.error || 'Failed to load sessions');
+                    }
+                } catch (error) {
+                    console.error('Error loading sessions:', error);
+                    this.showToast('Failed to load sessions: ' + error.message, 'error');
+                    document.getElementById('sessionsList').innerHTML = '<div class="loading">Error loading sessions: ' + error.message + '</div>';
+                }
+            }
+
+            renderSessions() {
+                const container = document.getElementById('sessionsList');
+                container.innerHTML = '';
+                
+                if (this.sessions.length === 0) {
+                    container.innerHTML = '<div class="loading">No sessions found</div>';
+                    return;
+                }
+                
+                this.sessions.forEach(session => {
+                    const sessionEl = document.createElement('div');
+                    sessionEl.className = 'session-item';
+                    sessionEl.dataset.sessionId = session.sessionId;
+                    
+                    const date = new Date(session.updatedAt).toLocaleDateString();
+                    const time = new Date(session.updatedAt).toLocaleTimeString();
+                    
+                    sessionEl.innerHTML = `
+                        <div class="session-preview">${this.truncateText(session.lastMsg, 100)}</div>
+                        <div class="session-meta">
+                            <span>${session.messageCount || 0} msgs</span>
+                            <span>${date} ${time}</span>
+                        </div>
+                    `;
+                    
+                    sessionEl.addEventListener('click', () => this.selectSession(session.sessionId));
+                    container.appendChild(sessionEl);
+                });
+            }
+
+            // Add all the other methods from your admin.js file here...
+            // (selectSession, renderSessionDetail, saveEdit, etc.)
+            
+            showLoading(containerId) {
+                const container = document.getElementById(containerId);
+                container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+            }
+
+            showToast(message, type = 'info') {
+                console.log(`Toast: ${message} (${type})`);
+                const container = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                
+                const icon = type === 'success' ? 'fa-check-circle' : 
+                            type === 'error' ? 'fa-exclamation-circle' : 
+                            'fa-info-circle';
+                
+                toast.innerHTML = `
+                    <i class="fas ${icon}"></i>
+                    <span>${message}</span>
+                `;
+                
+                container.appendChild(toast);
+                
+                // Auto remove after 5 seconds
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 5000);
+            }
+
+            truncateText(text, maxLength) {
+                if (!text) return 'No message';
+                return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+            }
+
+            async refreshSessions() {
+                await this.loadSessions(true);
+                this.showToast('Sessions refreshed', 'info');
+            }
+
+            async loadMoreSessions() {
+                await this.loadSessions(false);
+            }
+
+            async filterByDomain(domainId) {
+                this.currentSkip = 0;
+                await this.loadSessions(true);
+            }
+        }
+
+        // Initialize the admin dashboard when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Initializing Chat Admin Dashboard...');
+            new ChatAdmin();
+        });
+    </script>
+</body>
+</html>

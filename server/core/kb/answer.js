@@ -27,6 +27,32 @@ ${cites || "None"}`;
 async function kbAnswer(userMsg, retrieved) {
   const chunks = retrieved.chunks || [];
 
+  // If retriever says fallback or no chunks → pure OpenAI answer
+  if (retrieved.source === 'fallback' || chunks.length === 0) {
+    const messages = [
+      {
+        role: "system",
+        content: `You are RabbitLoader Support. If KB context is missing, answer based on your own general knowledge of RabbitLoader.
+Keep it short (3-6 sentences). If it's a destructive request (delete/disable/remove), tell them to use the Console manually.`,
+      },
+      {
+        role: "user",
+        content: userMsg,
+      },
+    ];
+
+    const answer = await chatCompletion(messages, {
+      model: "gpt-4o-mini",
+      max_tokens: 350,
+    });
+
+    return {
+      answer,
+      sources: [], // no KB cites
+    };
+  }
+
+  // Otherwise → use KB chunks like before
   const { system, user } = buildPrompt(userMsg, chunks);
 
   const messages = [
@@ -43,6 +69,7 @@ async function kbAnswer(userMsg, retrieved) {
     idx: i + 1,
     title: c.title,
     url: c.url,
+    score: c.score,
   }));
 
   return { answer, sources };
